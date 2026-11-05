@@ -1,3 +1,4 @@
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
 import Image from "next/image";
 import { Suspense } from "react";
@@ -17,30 +18,26 @@ export default async function Home() {
       <section className="shell hero">
         <div className="hero-copy">
           <div className="eyebrow">
-            <span className="small-dot" /> YOUR EVERYDAY, UPGRADED
+            <span className="small-dot" /> {site.copy.heroEyebrow}
           </div>
           <h1>
-            Less ordinary.
+            {site.copy.heroTitle}
             <br />
-            More <em>possibility.</em>
+            {site.copy.heroSecondLine} <em>{site.copy.heroAccent}</em>
           </h1>
-          <p>
-            Turn up the sound. Find your focus.
-            <br />
-            Meet the tech that moves with you.
-          </p>
+          <p>{site.copy.heroDescription}</p>
           <Link href="#collection" className="button light">
             Explore the collection <Icon name="arrow" />
           </Link>
           <div className="hero-bottom">
-            <span>CURATED TECH. URBAN SPIRIT.</span>
+            <span>{site.copy.heroFooter}</span>
             <span>01 — 06</span>
           </div>
         </div>
         <div className="hero-visual">
           <div className="orbit orbit-one" />
           <div className="orbit orbit-two" />
-          <span className="hero-vertical">LISTEN DIFFERENTLY</span>
+          <span className="hero-vertical">{site.copy.heroVertical}</span>
           <Image
             src={productImage(heroProduct.image)}
             alt={heroProduct.name}
@@ -74,15 +71,12 @@ export default async function Home() {
         </div>
       </section>
       <section className="values-strip shell" aria-label="Our approach">
-        <span>
-          <b>01</b> Thoughtfully selected
-        </span>
-        <span>
-          <b>02</b> Made for your everyday
-        </span>
-        <span>
-          <b>03</b> A world of possibility
-        </span>
+        {site.copy.values.map((value, i) => (
+          <span key={value}>
+            <b>0{i + 1}</b>
+            {value}
+          </span>
+        ))}
       </section>
       <Suspense
         fallback={<div className="shell section">Loading collection…</div>}
@@ -98,38 +92,30 @@ export default async function Home() {
             height={500}
           />
           <span>
-            TAKE YOUR
+            {site.copy.editorialPoster}
             <br />
-            GOOD VIBES
-            <br />
-            <em>EVERYWHERE.</em>
+            <em>{site.copy.editorialPosterAccent}</em>
           </span>
         </div>
         <div className="editorial-copy">
-          <span className="eyebrow">SMALL DETAILS. BIG DIFFERENCE.</span>
+          <span className="eyebrow">{site.copy.editorialEyebrow}</span>
           <h2>
-            Technology should
+            {site.copy.editorialTitle}
             <br />
-            fit your life.
-            <br />
-            <em>Beautifully.</em>
+            <em>{site.copy.editorialAccent}</em>
           </h2>
-          <p>
-            From the first track of your morning to the last idea of the day.
-            We’re building a collection of electronics that brings a little more
-            possibility to every moment.
-          </p>
+          <p>{site.copy.editorialDescription}</p>
           <Link className="text-link" href="/about">
-            Get to know Leron <Icon name="arrow" />
+            Get to know {site.brand.wordmark} <Icon name="arrow" />
           </Link>
         </div>
       </section>
       <section className="shell closing">
-        <span className="eyebrow">THE LERON PERSPECTIVE</span>
+        <span className="eyebrow">{site.brand.wordmark} · OUR PERSPECTIVE</span>
         <h2>
-          Stay connected.
+          {site.copy.closingTitle}
           <br />
-          Stay a little <em>curious.</em>
+          <em>{site.copy.closingAccent}</em>
         </h2>
         <Link href="#collection" className="button dark">
           Find your next essential <Icon name="arrow" />

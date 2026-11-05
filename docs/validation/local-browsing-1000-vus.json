@@ -1,0 +1,53 @@
+{
+  "generatedAt": "2026-11-05T20:35:07.978Z",
+  "scope": "Isolated read-only browsing workload; not a production SLA or payment capacity certification.",
+  "fixtureProducts": 1000,
+  "virtualShoppers": 1000,
+  "rampSeconds": 20,
+  "holdSeconds": 30,
+  "thinkTimeSeconds": [
+    2,
+    8
+  ],
+  "distribution": {
+    "catalogAPI": 70,
+    "productPages": 20,
+    "homePage": 6,
+    "bagPage": 4
+  },
+  "elapsedSeconds": 50,
+  "requests": 8548,
+  "errors": 0,
+  "errorRate": 0,
+  "peakConcurrentRequests": 11,
+  "requestsPerSecond": 171,
+  "latencyMs": {
+    "p50": 1,
+    "p95": 9,
+    "p99": 17
+  },
+  "byRoute": {
+    "catalog": {
+      "requests": 5983,
+      "p95Ms": 3,
+      "p99Ms": 7
+    },
+    "documents": {
+      "requests": 2565,
+      "p95Ms": 15,
+      "p99Ms": 23
+    }
+  },
+  "errorStatuses": {},
+  "host": {
+    "logicalCPUs": 5,
+    "totalMemoryGiB": 33,
+    "node": "v24.22.1",
+    "generatorAndServerShareHost": true
+  },
+  "limits": {
+    "maxErrorRate": 0.01,
+    "p95BudgetMs": 2000
+  },
+  "passed": true
+}

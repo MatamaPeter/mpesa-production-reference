@@ -1,3 +1,4 @@
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
 export function Footer() {
   return (
@@ -5,19 +6,19 @@ export function Footer() {
       <div className="shell footer-top">
         <div>
           <Link href="/" className="footer-brand">
-            LERON<span>®</span>
+            {site.brand.wordmark}
+            <span>{site.brand.mark}</span>
           </Link>
-          <p>
-            Good tech. Great possibilities.
-            <br />
-            Made for your everyday.
-          </p>
+          <p>{site.brand.footer}</p>
         </div>
         <div>
           <h2>Explore</h2>
           <Link href="/#collection">The collection</Link>
           <Link href="/about">Our story</Link>
           <Link href="/cart">Your bag</Link>
+          <Link href="/account">Your account</Link>
+          <Link href="/saved">Saved & compared</Link>
+          <Link href="/contact">Contact us</Link>
         </div>
         <div>
           <h2>Need to know</h2>
@@ -27,18 +28,22 @@ export function Footer() {
           <Link href="/policies/terms">Terms of sale</Link>
         </div>
         <div className="footer-note">
-          <span className="eyebrow">STAY CURIOUS.</span>
-          <h2>
-            A better everyday
-            <br />
-            starts with a little tech.
-          </h2>
+          <span className="eyebrow">{site.copy.footerEyebrow}</span>
+          <h2>{site.copy.footerTitle}</h2>
           <Link href="/#collection">Find your next essential ↗</Link>
         </div>
       </div>
       <div className="shell footer-bottom">
-        <span>© {new Date().getFullYear()} Leron Urban Electronics</span>
-        <span>USD & KES · Cards and M-Pesa at launch</span>
+        <span>
+          © {new Date().getFullYear()} {site.brand.name}
+        </span>
+        <span>{site.currencies.join(" · ")} · Cards and M-Pesa</span>
+        {site.contact.email && (
+          <a href={`mailto:${site.contact.email}`}>{site.contact.email}</a>
+        )}
+        {site.contact.phone && (
+          <a href={`tel:${site.contact.phone}`}>{site.contact.phone}</a>
+        )}
       </div>
     </footer>
   );

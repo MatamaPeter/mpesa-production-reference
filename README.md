@@ -1,52 +1,54 @@
 # Leron Urban Electronics
 
-An international electronics storefront built with Next.js 16, React 19, TypeScript, MongoDB/Mongoose, Stripe Checkout and Safaricom Daraja.
+Reusable electronics commerce application using Next.js 16, React 19, TypeScript, MongoDB transactions, Stripe Checkout and Safaricom Daraja. Leron's identity, support contacts, theme, navigation, enabled features, currency settings and policy text live in [one configuration file](src/config/site.ts). Brand and contact constants also populate policy copy.
 
-**Current status: functional preview, not approved for live trading.** The owner requested a draft catalog. Products, illustrations, prices and legal pages are explicitly drafts; `COMMERCE_LIVE` defaults to false. Real provider credentials and merchant onboarding, approved commercial policies, and live integration acceptance are still required.
+**Release status: implemented application under validation, with a draft catalog and unapproved commercial policies. Live trading is disabled by default.** A successful build is not payment acceptance, a security certification or a guarantee of uninterrupted availability. See the [launch and operations guide](docs/production-readiness.md) and [validation record](docs/validation.md).
 
-## Development
+## Run locally
 
-Use Node.js 22.12+ (validated on 24.22.1).
+Use Node.js 22.12+; validation uses Node 24. Preview works without provider credentials or MongoDB.
 
 ```sh
 npm ci
-# Copy .env.example to .env.local only if you do not already have local settings.
+# Copy .env.example to .env.local only if local settings do not already exist.
 npm run dev
 ```
 
-The preview works without a database or payment credentials. Browse `/`, `/products/[slug]`, `/cart` and `/checkout`. `/admin` exposes operator sign-in, not a public account-registration flow. Guest order access uses an HTTP-only browser cookie; order links do not grant access across browsers.
+For persistent features, provision a MongoDB replica set or sharded cluster, set deployment secrets using [.env.example](.env.example), then run `npm run db:prepare` against the intended database. This creates indexes and initial coordination/warehouse records; it does not drop indexes or silently migrate old orders. Back up an existing installation and review migration compatibility first.
 
-For database features, configure `MONGODB_URI` for a replica set or sharded cluster, `CHECKOUT_COOKIE_SECRET` (32+ random characters), and `APP_ORIGIN` matching the exact browser origin. Run `npm run db:prepare` against the intended database. It adds indexes and refuses unsupported MongoDB topology; it does not rewrite records or drop old indexes. Existing legacy orders require a deliberate migration and are not silently converted.
+## Included workflows
 
-## Store administration
+- Responsive storefront, filtered/paginated search, variants, image galleries and zoom, saved items, comparison, recent products, cart, currency selection, policies and contact/support forms.
+- Email link accounts, address book, order history, data export, server-persisted signed-in wishlists, authenticator MFA and recovery codes.
+- Server-priced checkout, transactional warehouse inventory reservations, promotion capacity, consent snapshots, idempotency, Stripe-hosted cards/tax and Kenya/KES M-Pesa.
+- Signed payment events, durable callback evidence, conservative reconciliation and inventory release, receipts, fulfilment/tracking, verified-purchase review moderation, return requests and separately controlled restocking.
+- Partial/full refunds, disputes and holds, two-person manual M-Pesa refund/recovery controls, durable email/tax/refund jobs, carrier rates/labels/tracking and sanitized GridFS/S3 media uploads.
+- Role-controlled staff operations, authenticator verification, inventory adjustments/transfers, promotions, customer service, analytics, audit trail and private readiness diagnostics.
+- Central theme variables, metadata, staged merchant feeds, structured product data, nonce-based CSP, static/runtime release checks, CI, a non-root Docker image and an isolated load harness.
 
-Set `ADMIN_SESSION_SECRET` to a separate random secret of at least 32 characters. Create `ADMIN_PASSWORD_HASH` with `node scripts/admin-password.mjs` by supplying a strong password on stdin through a password manager or secure local prompt. Do not put passwords in shell arguments or command history. The script outputs a salted scrypt hash, not the password. Store it securely in deployment settings. Sign in at `/admin`.
+These are application capabilities, not evidence that every provider is authorized or verified. [Architecture and boundaries](docs/architecture.md) describe the operational requirements and explicit limits. Preview products and illustrations are fixtures, not approved sale listings.
 
-Product images can use built-in illustrations or approved local photographs placed in `public/products`; uploading files through the admin is not implemented.
-
-The panel can import draft products (inactive, zero stock), create/edit listings and independent USD/KES prices, manage available inventory, review the most recent 100 orders, and advance paid orders through processing, shipped and delivered. Shipping requires a tracking reference. Customer accounts, an asset-upload service, automated returns/refunds, and multi-operator roles/MFA are not implemented; do not represent those capabilities as available. Use audited provider dashboards and the documented operator runbook for refunds and payment review. Production admin access should additionally be restricted by your hosting identity/access gateway with MFA.
-
-## Payment architecture
-
-All prices are integer minor units and loaded from MongoDB on the server; display currency is not exchange-rate conversion. Creating an order atomically reserves stock and records an idempotency key. Order creation rolls back all reservations if any item is unavailable. Reservations last 65 minutes. A scheduled job releases abandoned, unpaid orders, but never releases uncertain payment stock automatically.
-
-Stripe hosts card entry and performs automatic tax calculation. The server verifies signed webhooks, order reference, currency and subtotal before confirming payment, and stores provider tax and total. M-Pesa is available only for KES orders delivered in Kenya with an explicitly approved tax configuration. Initiation claims and payment creation are transactional. Callback evidence is persisted before lookup to handle callbacks arriving before the initiation response. Reconciliation requires matching callback evidence and an independent STK query. An uncertain initiation is held for review to avoid duplicate charges. Neither provider confirmation nor this application is independent merchant settlement verification.
-
-Configure the exact Stripe API version used by the installed SDK for webhook endpoints; replay signed events in staging before launch. Stripe Tax requires merchant registration/configuration; adding a key alone is insufficient. Merchant eligibility for Stripe depends on the operating entity and country. This application does not imply eligibility.
-
-Paid-order receipts and fulfillment updates are recorded transactionally in a durable email outbox. Configure `RESEND_API_KEY` and a verified `EMAIL_FROM`, then run the scheduled reconciliation worker. Provider delivery is idempotent, retried with backoff, and held for review before its idempotency window expires. Real email delivery has not been exercised.
-
-See [deployment and launch requirements](docs/production-readiness.md) for setup, security boundaries, provider endpoints, migrations and operational gaps.
-
-## Verification
+## Validate
 
 ```sh
-npm test                  # nine unit tests: money, validation, admin sessions, shipping
+npm test
 npm run typecheck -- --incremental false
 npm run build
-npm run test:integration  # isolated MongoDB replica set + HTTP tests; never your database
-npm run test:e2e          # built server + Chromium desktop/mobile browser tests
+npm run test:integration
+npx playwright install --with-deps chromium firefox webkit
+AUTH_BROWSER_TESTS=true npm run test:integration # adds staff/account UI checks
+BROWSER_MATRIX=all npm run test:e2e
+npm run test:load
 npm run format:check
+npm run check:production
 ```
 
-The integration runner downloads a checksum-verified MongoDB binary to its normal test cache. It starts a disposable local replica set and an app on port 3200, with disposable keys and no external payment requests. Browser tests run preview mode on port 3100 and require Chromium (`CHROMIUM_PATH`, system Chromium, or Playwright's installed browser). On a fresh machine run `npx playwright install --with-deps chromium` if needed. Build before integration or browser tests. Retained test screenshots and traces are ignored by Git.
+Build before integration, browser and load tests. Integration and load runners create disposable MongoDB replica sets and download checksum-verified MongoDB binaries; they do not use the configured merchant database. Integration uses port 3200, browser tests 3100, load tests 3300. Run capacity tests separately from other heavy tasks. `check:production` deliberately reports unmet live requirements even when preview works.
+
+## Reuse for another client
+
+Edit `src/config/site.ts`: brand/contact constants, `site.id`, theme, currencies, launch countries and approved policies. Use a separate deployment, database, provider accounts, encryption/session secrets and media namespace for each client. Populate actual product and inventory records through administration. Configure commercial rates and credentials in deployment settings, never in the site file. See [customization](docs/customization.md).
+
+## Deploy
+
+The [Dockerfile](Dockerfile) builds a standalone non-root runtime. Run the web service and a separate supervised worker (`npm run worker`, or `node scripts/worker.mjs` inside the image). Configure secrets at runtime, keep preview enabled until release acceptance, and serve through HTTPS with database backups and monitoring. No deployment or environment publication is performed by this repository's build.

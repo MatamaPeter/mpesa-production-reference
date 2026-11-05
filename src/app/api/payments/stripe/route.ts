@@ -1,3 +1,5 @@
+import { assertTradingAllowed } from "@/lib/trading";
+import { orderAccess, currentCustomer } from "@/lib/customer-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { checkOrigin, checkoutIdentity } from "@/lib/checkout-auth";
@@ -17,12 +19,16 @@ export async function POST(req: NextRequest) {
       !process.env.STRIPE_WEBHOOK_SECRET
     )
       throw new RequestError("Checkout is not open yet", 503);
+    assertTradingAllowed();
     const parsed = z
       .object({ orderId: z.string().regex(/^[a-f0-9]{24}$/i) })
       .safeParse(await readJSON(req));
     if (!parsed.success) throw new RequestError("Invalid order");
-    const ownerTokenHash = await checkoutIdentity();
-    if (!ownerTokenHash) throw new RequestError("Session required", 401);
+    const access = await orderAccess();
+    const ownerTokenHash =
+      (await currentCustomer())?.id ?? (await checkoutIdentity());
+    if (!access || !ownerTokenHash)
+      throw new RequestError("Session required", 401);
     await rateLimit("stripe", ownerTokenHash, 10);
     const origin = process.env.APP_ORIGIN;
     if (!origin)
@@ -32,14 +38,18 @@ export async function POST(req: NextRequest) {
     const order = await Order.findOneAndUpdate(
       {
         _id: parsed.data.orderId,
-        ownerTokenHash,
+        $and: [
+          access!,
+          {
+            $or: [
+              { paymentMethod: { $exists: false } },
+              { paymentMethod: "stripe" },
+            ],
+          },
+        ],
         status: "unpaid",
         activePaymentId: null,
         reservationExpiresAt: { $gt: new Date(Date.now() + 31 * 60000) },
-        $or: [
-          { paymentMethod: { $exists: false } },
-          { paymentMethod: "stripe" },
-        ],
       },
       { $set: { paymentMethod: "stripe" } },
       { returnDocument: "after" },
@@ -84,14 +94,19 @@ export async function POST(req: NextRequest) {
         automatic_tax: { enabled: true },
         line_items: [
           ...order.items.map(
-            (i: { name: string; unitPrice: number; qty: number }) => ({
+            (i: {
+              name: string;
+              unitPrice: number;
+              qty: number;
+              lineTotalMinor?: number;
+            }) => ({
               price_data: {
                 currency: order.currency.toLowerCase(),
-                unit_amount: i.unitPrice,
-                product_data: { name: i.name },
+                unit_amount: i.lineTotalMinor ?? i.unitPrice * i.qty,
+                product_data: { name: `${i.name} × ${i.qty}` },
                 tax_behavior: "exclusive" as const,
               },
-              quantity: i.qty,
+              quantity: 1,
             }),
           ),
           ...(order.shipping > 0

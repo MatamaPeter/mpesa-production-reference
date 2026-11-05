@@ -1,3 +1,4 @@
+import { site, storageKey } from "@/config/site";
 import "server-only";
 import type { ClientSession } from "mongoose";
 import { EmailOutbox } from "@/models/EmailOutbox";
@@ -22,13 +23,13 @@ export async function queueNotification(
     eventKey = `order:${id}:${kind === "receipt" ? "receipt" : order.fulfillment}`;
   const subject =
     kind === "receipt"
-      ? "Your Leron order is confirmed"
-      : `Your Leron order: ${order.fulfillment}`;
+      ? `Your ${site.brand.wordmark} order is confirmed`
+      : `Your ${site.brand.wordmark} order: ${order.fulfillment}`;
   const text = [
     `Hello ${order.address.name ?? "there"},`,
     "",
     kind === "receipt"
-      ? "Your payment has been confirmed. Thank you for shopping with Leron Urban Electronics."
+      ? `Your payment has been confirmed. Thank you for shopping with ${site.brand.name}.`
       : `Your order is now ${order.fulfillment}.`,
     `Order reference: ${id}`,
     ...order.items.map((i) => `${i.name} × ${i.qty}`),
@@ -41,7 +42,7 @@ export async function queueNotification(
       ? [`Tracking reference: ${order.trackingNumber}`]
       : []),
     "",
-    "Keep your original browser session to view the order. This email does not grant access to order details.",
+    "Sign in with your order email address, or use the browser session that placed the order, to view its details.",
   ].join("\n");
   await EmailOutbox.updateOne(
     { eventKey },
@@ -106,7 +107,12 @@ export async function deliverNotifications() {
         },
         body: JSON.stringify({
           from,
-          to: [row.to],
+          to: [
+            process.env.COMMERCE_STAGE === "sandbox" &&
+            process.env.EMAIL_SANDBOX_RECIPIENT
+              ? process.env.EMAIL_SANDBOX_RECIPIENT
+              : row.to,
+          ],
           subject: row.subject,
           text: row.text,
         }),

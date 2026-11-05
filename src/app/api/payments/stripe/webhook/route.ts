@@ -1,3 +1,7 @@
+import { readBytes, RequestError } from "@/lib/http";
+import { settleRefund } from "@/lib/refunds";
+import { recordDispute } from "@/lib/disputes";
+import { redeemCoupon } from "@/lib/coupons";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import Stripe from "stripe";
@@ -13,14 +17,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Webhook unavailable" }, { status: 400 });
   let event: Stripe.Event;
   try {
-    const raw = await req.text();
-    if (raw.length > 1000000)
-      return NextResponse.json({ error: "Too large" }, { status: 413 });
+    const raw = await readBytes(req, 1000000);
     event = stripeClient().webhooks.constructEvent(raw, signature, secret);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestError)
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
   try {
+    if (event.type === "refund.created" || event.type === "refund.updated") {
+      const refund = event.data.object as Stripe.Refund,
+        id = refund.metadata?.refundId;
+      if (
+        id &&
+        /^[a-f0-9]{24}$/i.test(id) &&
+        (refund.status === "succeeded" ||
+          refund.status === "failed" ||
+          refund.status === "canceled")
+      ) {
+        await connectDB();
+        await settleRefund(
+          id,
+          refund.status === "succeeded" ? "succeeded" : "failed",
+          refund.id,
+          refund.amount,
+          refund.currency,
+        );
+      }
+      return NextResponse.json({ received: true });
+    }
+    if (
+      event.type === "charge.dispute.created" ||
+      event.type === "charge.dispute.updated" ||
+      event.type === "charge.dispute.closed"
+    ) {
+      await connectDB();
+      await recordDispute(event.data.object as Stripe.Dispute, event.created);
+      return NextResponse.json({ received: true });
+    }
     if (
       ![
         "checkout.session.completed",
@@ -81,12 +118,17 @@ export async function POST(req: NextRequest) {
               status: "paid",
               paidAt: new Date(),
               stripeSessionId: checkout.id,
+              stripePaymentIntent:
+                typeof checkout.payment_intent === "string"
+                  ? checkout.payment_intent
+                  : checkout.payment_intent?.id,
               taxMinor: checkout.total_details?.amount_tax ?? 0,
               totalPaidMinor: checkout.amount_total,
             },
           },
           { session },
         );
+        await redeemCoupon(current, session);
         current.totalPaidMinor = checkout.amount_total;
         await queueNotification(current, "receipt", session);
       });

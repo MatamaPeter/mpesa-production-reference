@@ -1,4 +1,7 @@
 "use client";
+import { decimalToMinor, minorToDecimal, currencyDigits } from "@/lib/money";
+import Link from "next/link";
+import { site, storageKey } from "@/config/site";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney, type ProductData, type Currency } from "@/lib/catalog";
@@ -37,7 +40,7 @@ const newProduct: ProductData = {
   sku: "",
   slug: "",
   name: "",
-  category: "Audio",
+  category: site.categories[0] ?? "General",
   tagline: "",
   description: "",
   prices: { USD: 100, KES: 100 },
@@ -55,6 +58,29 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(authenticated);
+  const [productCursor, setProductCursor] = useState<string | null>(null),
+    [orderCursor, setOrderCursor] = useState<string | null>(null);
+  async function loadMore() {
+    setBusy(true);
+    try {
+      const result = await api(
+        `/api/admin/${tab}?cursor=${encodeURIComponent(tab === "products" ? productCursor! : orderCursor!)}`,
+      );
+      if (tab === "products") {
+        setProducts((old) => [...old, ...result.items]);
+        setProductCursor(result.nextCursor);
+      } else {
+        setOrders((old) => [...old, ...result.items]);
+        setOrderCursor(result.nextCursor);
+      }
+    } catch (e) {
+      setMessage(
+        e instanceof Error ? e.message : "Could not load more records",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   async function refresh() {
     setLoading(true);
     try {
@@ -62,8 +88,10 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
         api("/api/admin/products"),
         api("/api/admin/orders"),
       ]);
-      setProducts(p);
-      setOrders(o);
+      setProducts(p.items ?? p);
+      setProductCursor(p.nextCursor ?? null);
+      setOrderCursor(o.nextCursor ?? null);
+      setOrders(o.items ?? o);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not load store");
     } finally {
@@ -109,7 +137,14 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
   }
   return (
     <main id="main" className="shell section admin-page">
-      <span className="eyebrow">LERON · STORE OPERATIONS</span>
+      <Link className="text-link" href="/admin/operations">
+        Open store operations ↗
+      </Link>
+      <p className="fine-print">
+        Staff: use <Link href="/account">your account and authenticator</Link>.
+        Password access is a temporary, explicitly enabled bootstrap path.
+      </p>
+      <span className="eyebrow">{site.brand.wordmark} · STORE OPERATIONS</span>
       <h1 className="page-title">
         Behind the <em>store.</em>
       </h1>
@@ -157,6 +192,7 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
               onClick={async () => {
                 try {
                   await api("/api/admin/logout", { method: "POST" });
+                  window.dispatchEvent(new Event("account-changed"));
                   router.refresh();
                 } catch {
                   setMessage("Sign-out failed. Please retry.");
@@ -168,10 +204,10 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
           </div>
           <p className="admin-note">
             Live checkout remains controlled by the deployment configuration.
-            Product prices are in minor units (USD cents / KES cents), not
-            currency conversion. Review fulfillment, taxes and policies before
-            launch. Never mark an uncertain payment paid manually without
-            independent verification.
+            Enter prices as currency amounts; the server stores integer minor
+            units. Fixed market prices do not imply currency conversion. Review
+            fulfillment, taxes and policies before launch. Never mark an
+            uncertain payment paid manually without independent verification.
           </p>
           {loading && <p role="status">Loading store data…</p>}
           {tab === "products" ? (
@@ -198,9 +234,8 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
           ) : (
             <>
               <p className="fine-print">
-                Showing up to 100 most recent orders. Refunds and disputed
-                payments require the provider dashboard and audited operational
-                review.
+                Orders load in cursor-based pages. Use Operations for refunds,
+                returns, payment recovery and audited review.
               </p>
               {!loading && !orders.length && (
                 <div className="empty-state">
@@ -290,6 +325,11 @@ export function AdminPanel({ authenticated }: { authenticated: boolean }) {
           )}
         </>
       )}
+      {authenticated && (tab === "products" ? productCursor : orderCursor) && (
+        <button className="button outline" disabled={busy} onClick={loadMore}>
+          Load more {tab}
+        </button>
+      )}
       {message && (
         <div className="error-box" role="status">
           {message}
@@ -310,24 +350,62 @@ function ProductEditor({
   const [busy, setBusy] = useState(false);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget),
-      data = {
-        sku: f.get("sku"),
-        slug: f.get("slug"),
-        name: f.get("name"),
-        category: f.get("category"),
-        tagline: f.get("tagline"),
-        description: f.get("description"),
-        prices: { USD: Number(f.get("USD")), KES: Number(f.get("KES")) },
-        image: f.get("image"),
-        features: String(f.get("features"))
-          .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        stock: Number(f.get("stock")),
-        active: f.get("active") === "on",
-        featured: f.get("featured") === "on",
-      };
+    const f = new FormData(e.currentTarget);
+    let prices: Record<string, number>;
+    try {
+      prices = Object.fromEntries(
+        site.currencies
+          .filter((c) => String(f.get(c) ?? "").trim())
+          .map((c) => [c, decimalToMinor(String(f.get(c)), c)]),
+      );
+    } catch {
+      report("Enter valid currency amounts with the correct decimal precision");
+      return;
+    }
+    const data = {
+      sku: f.get("sku"),
+      slug: f.get("slug"),
+      name: f.get("name"),
+      category: f.get("category"),
+      tagline: f.get("tagline"),
+      brand: String(f.get("brand") ?? ""),
+      mpn: String(f.get("mpn") ?? ""),
+      ...(f.get("gtin") ? { gtin: f.get("gtin") } : {}),
+      condition: f.get("condition"),
+      images: String(f.get("images") ?? "")
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      ...(f.get("weightGrams")
+        ? { weightGrams: Number(f.get("weightGrams")) }
+        : {}),
+      ...(f.get("taxCode") ? { taxCode: f.get("taxCode") } : {}),
+      description: f.get("description"),
+      parentSku: String(f.get("parentSku") ?? ""),
+      attributes: String(f.get("attributes") ?? "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [name, ...value] = line.split(":");
+          return { name: name.trim(), value: value.join(":").trim() };
+        }),
+      specifications: String(f.get("specifications") ?? "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [name, ...value] = line.split(":");
+          return { name: name.trim(), value: value.join(":").trim() };
+        }),
+      prices,
+      image: f.get("image"),
+      features: String(f.get("features"))
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      stock: Number(f.get("stock")),
+      active: f.get("active") === "on",
+      featured: f.get("featured") === "on",
+    };
     setBusy(true);
     try {
       await api("/api/admin/products", {
@@ -378,16 +456,38 @@ function ProductEditor({
         <label>
           Category
           <select name="category" defaultValue={p.category}>
-            {["Audio", "Wearables", "Cameras", "Computing", "Accessories"].map(
-              (c) => (
-                <option key={c}>{c}</option>
-              ),
-            )}
+            {site.categories.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
           </select>
         </label>
         <label>
           Tagline
           <input name="tagline" maxLength={180} defaultValue={p.tagline} />
+        </label>
+        <label>
+          Manufacturer / brand (optional)
+          <input name="brand" defaultValue={p.brand ?? ""} maxLength={100} />
+        </label>
+        <label>
+          GTIN barcode (optional)
+          <input
+            name="gtin"
+            defaultValue={p.gtin ?? ""}
+            pattern="[0-9]{8}|[0-9]{12}|[0-9]{13}|[0-9]{14}"
+          />
+        </label>
+        <label>
+          Manufacturer part number (optional)
+          <input name="mpn" defaultValue={p.mpn ?? ""} maxLength={100} />
+        </label>
+        <label>
+          Condition
+          <select name="condition" defaultValue={p.condition ?? "new"}>
+            <option value="new">New</option>
+            <option value="refurbished">Refurbished</option>
+            <option value="used">Used</option>
+          </select>
         </label>
         <label>
           Description
@@ -400,33 +500,28 @@ function ProductEditor({
           />
         </label>
         <div className="form-grid">
-          <label>
-            USD price (cents)
-            <input
-              name="USD"
-              type="number"
-              min={1}
-              step={1}
-              required
-              defaultValue={p.prices.USD}
-            />
-          </label>
-          <label>
-            KES price (cents)
-            <input
-              name="KES"
-              type="number"
-              min={100}
-              step={100}
-              required
-              defaultValue={p.prices.KES}
-            />
-          </label>
+          {site.currencies.map((c) => (
+            <label key={c}>
+              {c} price
+              <input
+                name={c}
+                type="number"
+                min={1}
+                step={
+                  c === "KES" || currencyDigits(c) === 0
+                    ? 1
+                    : 10 ** -currencyDigits(c)
+                }
+                defaultValue={minorToDecimal(p.prices[c], c)}
+              />
+            </label>
+          ))}
         </div>
         <label>
-          Available stock
+          Initial stock (use inventory controls for existing products)
           <input
             name="stock"
+            readOnly={!!p.sku}
             type="number"
             min={0}
             max={100000}
@@ -442,6 +537,55 @@ function ProductEditor({
             Place approved photographs in public/products before setting their
             path.
           </small>
+        </label>
+        <label>
+          Parent SKU (optional, for a variant)
+          <input
+            name="parentSku"
+            defaultValue={p.parentSku ?? ""}
+            maxLength={80}
+          />
+        </label>
+        <label>
+          Variant options (one Name: Value per line)
+          <textarea
+            name="attributes"
+            defaultValue={
+              p.attributes?.map((a) => `${a.name}: ${a.value}`).join("\n") ?? ""
+            }
+          />
+        </label>
+        <label>
+          Specifications (one Name: Value per line)
+          <textarea
+            name="specifications"
+            defaultValue={
+              p.specifications
+                ?.map((a) => `${a.name}: ${a.value}`)
+                .join("\n") ?? ""
+            }
+          />
+        </label>
+        <label>
+          Additional image paths (one per line)
+          <textarea name="images" defaultValue={p.images?.join("\n") ?? ""} />
+        </label>
+        <label>
+          Item weight (grams, optional)
+          <input
+            name="weightGrams"
+            type="number"
+            min={1}
+            defaultValue={p.weightGrams ?? ""}
+          />
+        </label>
+        <label>
+          Stripe product tax code (optional; otherwise merchant default)
+          <input
+            name="taxCode"
+            defaultValue={p.taxCode ?? ""}
+            pattern="txcd_[0-9]{8}"
+          />
         </label>
         <label>
           Features (one per line)

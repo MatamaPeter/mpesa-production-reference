@@ -1,10 +1,17 @@
 "use client";
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useCart } from "./cart-provider";
 import { Icon } from "./icons";
-export function Header({ live }: { live: boolean }) {
+export function Header({
+  live,
+  mode = "preview",
+}: {
+  live: boolean;
+  mode?: string;
+}) {
   const { items, currency, setCurrency, ready } = useCart(),
     [open, setOpen] = useState(false),
     path = usePathname();
@@ -12,58 +19,63 @@ export function Header({ live }: { live: boolean }) {
   return (
     <>
       <div className="announcement">
-        {live
-          ? "Leron Urban Electronics · Thoughtfully selected technology"
-          : "THE NEXT CHAPTER IN EVERYDAY TECH — EXPLORE OUR DRAFT COLLECTION"}
-        <span>DESIGNED FOR LIFE IN MOTION ↗</span>
+        {mode === "sandbox"
+          ? "SANDBOX STORE — TEST ORDERS ONLY"
+          : live
+            ? `${site.brand.name} · ${site.copy.announcement}`
+            : site.copy.previewAnnouncement}
+        <span>{site.copy.announcementAside}</span>
       </div>
       <header className="header">
         <div className="shell header-inner">
           <Link
             href="/"
             className="wordmark"
-            aria-label="Leron Urban Electronics home"
+            aria-label={`${site.brand.name} home`}
           >
-            LERON<span className="brand-dot">®</span>
-            <small>URBAN ELECTRONICS</small>
+            {site.brand.wordmark}
+            <span className="brand-dot">{site.brand.mark}</span>
+            <small>{site.brand.descriptor}</small>
           </Link>
           <nav
             aria-label="Main navigation"
             className={open ? "main-nav open" : "main-nav"}
           >
-            <Link
-              className={path === "/" ? "active" : ""}
-              onClick={() => setOpen(false)}
-              href="/#collection"
-            >
-              Shop all
-            </Link>
-            <Link
-              onClick={() => setOpen(false)}
-              href="/?category=Audio#collection"
-            >
-              Audio
-            </Link>
-            <Link
-              onClick={() => setOpen(false)}
-              href="/?category=Wearables#collection"
-            >
-              Wearables
-            </Link>
-            <Link onClick={() => setOpen(false)} href="/about">
-              Our story
-            </Link>
+            {site.navigation.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={
+                  link.href === "/#collection" && path === "/" ? "active" : ""
+                }
+                onClick={() => setOpen(false)}
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
           <div className="header-actions">
+            {site.features.accounts && (
+              <Link
+                href="/account"
+                className="account-link"
+                aria-label="Your account"
+              >
+                Account
+              </Link>
+            )}
             <label className="currency">
               <Icon name="globe" />
               <span className="sr-only">Display currency</span>
               <select
                 value={currency}
-                onChange={(e) => setCurrency(e.target.value as "USD" | "KES")}
+                onChange={(e) => setCurrency(e.target.value)}
               >
-                <option value="USD">USD</option>
-                <option value="KES">KES</option>
+                {site.currencies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </label>
             <Link

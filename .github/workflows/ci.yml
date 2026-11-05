@@ -23,9 +23,13 @@ jobs:
       - run: npm test
       - run: npm run typecheck -- --incremental false
       - run: npm run build
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:integration
-      - run: npx playwright install --with-deps chromium
+        env:
+          AUTH_BROWSER_TESTS: true
       - run: npm run test:e2e
+        env:
+          BROWSER_MATRIX: all
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

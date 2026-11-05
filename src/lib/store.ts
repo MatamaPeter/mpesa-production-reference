@@ -1,8 +1,8 @@
+import { site } from "@/config/site";
 export const store = {
-  name: "Leron Urban Electronics",
-  shortName: "LERON",
-  description:
-    "Electronics for life in motion. Explore audio, wearables, cameras and workspace essentials from Leron Urban Electronics.",
+  name: site.brand.name,
+  shortName: site.brand.wordmark,
+  description: site.brand.description,
 };
 export function commerceEnabled() {
   return process.env.COMMERCE_LIVE === "true";

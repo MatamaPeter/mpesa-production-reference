@@ -1,3 +1,4 @@
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
 export default function NotFound() {
   return (
@@ -6,7 +7,7 @@ export default function NotFound() {
       <h1>This one’s out of range.</h1>
       <p>Let’s get you back to something good.</p>
       <Link className="button dark" href="/">
-        Back to Leron ↗
+        Back to {site.brand.wordmark} ↗
       </Link>
     </main>
   );

@@ -48,6 +48,7 @@ test("money totals reject fractional, negative, zero and overflowing values", ()
 const order = {
   items: [{ sku: "lu-headphones", qty: 1 }],
   currency: "USD",
+  termsAccepted: true,
   address: {
     name: "Test Customer",
     email: "test@example.com",
@@ -82,7 +83,7 @@ test("order validation rejects client-supplied prices, invalid addresses and out
     false,
   );
   assert.equal(
-    orderSchema.safeParse({ ...order, currency: "EUR" }).success,
+    orderSchema.safeParse({ ...order, currency: "INVALID" }).success,
     false,
   );
 });
@@ -239,4 +240,101 @@ test("product media paths cannot select remote resources or traverse directories
     "javascript:alert(1)",
   ])
     assert.equal(validProductImage(path), false);
+});
+
+test("authenticator codes follow RFC 6238 SHA-1 vectors and prevent counter replay", async () => {
+  const { totpAt, verifyTotp, toBase32 } = await import("../src/lib/security");
+  const secret = toBase32(Buffer.from("12345678901234567890"));
+  assert.equal(totpAt(secret, 1), "287082");
+  assert.equal(totpAt(secret, 37037036), "081804");
+  assert.equal(verifyTotp(secret, "287082", -1, 59000), 1);
+  assert.equal(verifyTotp(secret, "287082", 1, 59000), null);
+  assert.equal(verifyTotp(secret, "not-a-code", -1, 59000), null);
+});
+test("client configuration provides the single source for brand and CSS theme tokens", async () => {
+  const { site, storageKey, themeVariables } =
+    await import("../src/config/site");
+  assert.equal(themeVariables["--deep"], site.theme.primary);
+  assert.equal(themeVariables["--acid"], site.theme.accent);
+  assert.ok(storageKey("cart-v1").startsWith(site.id + ":"));
+  assert.ok(site.brand.name);
+  assert.match(site.contact.email, /^[^@]+@[^@]+\.[^@]+$/);
+});
+
+test("discount allocation preserves exact minor units under rounding and large values", async () => {
+  const { allocateDiscount, discountAmount } =
+    await import("../src/lib/discounts");
+  for (let seed = 1; seed <= 100; seed++) {
+    const lines = [seed * 17 + 1, seed * 31 + 2, seed * 47 + 3],
+      total = lines.reduce((a, b) => a + b, 0),
+      discount = Math.floor(total * 0.37);
+    const allocated = allocateDiscount(lines, discount);
+    assert.equal(
+      allocated.reduce((a, b) => a + b, 0),
+      discount,
+    );
+    assert.ok(allocated.every((a, i) => a >= 0 && a <= lines[i]));
+  }
+  assert.deepEqual(allocateDiscount([1, 1, 1], 2), [1, 1, 0]);
+  assert.equal(
+    discountAmount(100000, "KES", {
+      kind: "percent",
+      value: 1550,
+      minimumSubtotal: 0,
+    }),
+    15500,
+  );
+  assert.throws(() =>
+    discountAmount(10000, "USD", {
+      kind: "fixed",
+      value: 100,
+      currency: "KES",
+      minimumSubtotal: 0,
+    }),
+  );
+});
+test("currency conversion supports ISO minor-unit precision and rejects stale or invalid values", async () => {
+  const { convertMinor, decimalToMinor } = await import("../src/lib/money");
+  assert.equal(decimalToMinor("12.34", "USD"), 1234);
+  assert.equal(decimalToMinor("1500", "JPY"), 1500);
+  assert.equal(decimalToMinor("1.234", "KWD"), 1234);
+  assert.throws(() => decimalToMinor("1.234", "USD"));
+  assert.equal(
+    convertMinor(10000, "USD", "KES", { USD: 1, KES: 130 }),
+    1300000,
+  );
+  assert.equal(convertMinor(10000, "USD", "JPY", { USD: 1, JPY: 150 }), 15000);
+  assert.throws(() => convertMinor(100, "USD", "KES", { USD: 0, KES: 130 }));
+});
+test("launch gate rejects unsafe live configuration and prevents sandbox live credentials", async () => {
+  const { deploymentIssues } = await import("../src/lib/deployment");
+  assert.ok(
+    deploymentIssues({ COMMERCE_LIVE: "true", COMMERCE_STAGE: "live" }).length >
+      5,
+  );
+  assert.deepEqual(
+    deploymentIssues({
+      COMMERCE_LIVE: "true",
+      COMMERCE_STAGE: "sandbox",
+      STRIPE_SECRET_KEY: "sk_test_fixture",
+      MPESA_ENV: "sandbox",
+    }),
+    [],
+  );
+  assert.ok(
+    deploymentIssues({
+      COMMERCE_LIVE: "true",
+      COMMERCE_STAGE: "sandbox",
+      STRIPE_SECRET_KEY: "sk_live_fixture",
+    }).some((s) => s.includes("test credentials")),
+  );
+});
+
+test("product barcodes validate their checksum before merchant-channel publication", async () => {
+  const { validGTIN, minorToDecimal } = await import("../src/lib/money");
+  assert.equal(validGTIN("4006381333931"), true);
+  assert.equal(validGTIN("4006381333932"), false);
+  assert.equal(validGTIN("not-a-code"), false);
+  assert.equal(minorToDecimal(1234, "USD"), "12.34");
+  assert.equal(minorToDecimal(1500, "JPY"), "1500");
 });

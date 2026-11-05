@@ -1,3 +1,8 @@
+import { refreshMarketPrices } from "@/lib/exchange";
+import { WorkerHeartbeat } from "@/models/WorkerHeartbeat";
+import { processTaxJobs } from "@/lib/tax";
+import { pollShipments } from "@/lib/shipping";
+import { processRefunds } from "@/lib/refunds";
 import { NextRequest, NextResponse } from "next/server";
 import { safeCompare } from "@/lib/checkout-auth";
 import { connectDB } from "@/lib/db";
@@ -81,9 +86,47 @@ export async function GET(req: NextRequest) {
         }
       }
     }
-    const email = await deliverNotifications();
+    const fx = await refreshMarketPrices();
+    const [taxResult, shippingResult, refundResult, emailResult] =
+      await Promise.allSettled([
+        processTaxJobs(),
+        pollShipments(),
+        processRefunds(),
+        deliverNotifications(),
+      ]);
+    const tax =
+        taxResult.status === "fulfilled" ? taxResult.value : { taxError: true },
+      shipping =
+        shippingResult.status === "fulfilled"
+          ? shippingResult.value
+          : { shippingError: true },
+      refunds =
+        refundResult.status === "fulfilled"
+          ? refundResult.value
+          : { refundError: true },
+      email =
+        emailResult.status === "fulfilled"
+          ? emailResult.value
+          : { emailError: true };
+    await WorkerHeartbeat.updateOne(
+      { _id: "reconcile" },
+      {
+        $set: {
+          lastRunAt: new Date(),
+          lastResult: {
+            ...results,
+            ...email,
+            ...refunds,
+            ...shipping,
+            ...tax,
+            ...fx,
+          },
+        },
+      },
+      { upsert: true },
+    );
     return NextResponse.json(
-      { ...results, ...email },
+      { ...results, ...email, ...refunds, ...shipping, ...tax, ...fx },
       {
         headers: { "Cache-Control": "no-store" },
       },

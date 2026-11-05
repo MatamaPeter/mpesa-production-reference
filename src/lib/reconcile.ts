@@ -1,3 +1,6 @@
+import { queueTaxTransaction } from "./tax";
+import { releaseCoupon, redeemCoupon } from "./coupons";
+import { returnInventory } from "./inventory";
 import "server-only";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
@@ -146,6 +149,8 @@ export async function reconcilePayment(id: string): Promise<string> {
         const paidOrder = await Order.findById(current.orderId).session(
           session,
         );
+        if (paidOrder) await queueTaxTransaction(paidOrder, session);
+        if (paidOrder) await redeemCoupon(paidOrder, session);
         if (paidOrder) await queueNotification(paidOrder, "receipt", session);
       } else {
         const pay = await Payment.updateOne(
@@ -178,13 +183,13 @@ export async function reconcilePayment(id: string): Promise<string> {
           },
           { session, returnDocument: "before" },
         );
+        if (failedOrder) await releaseCoupon(failedOrder, session);
         if (failedOrder)
-          for (const item of failedOrder.items)
-            await Product.updateOne(
-              { sku: item.sku },
-              { $inc: { stock: item.qty } },
-              { session },
-            );
+          await returnInventory(
+            failedOrder.items,
+            `order:${failedOrder._id}`,
+            session,
+          );
       }
     });
   } catch (e) {

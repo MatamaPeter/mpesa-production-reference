@@ -1,3 +1,13 @@
+import { site } from "@/config/site";
+import { assertTradingAllowed } from "@/lib/trading";
+import {
+  exchangeSnapshot,
+  unitPrice as resolveUnitPrice,
+} from "@/lib/exchange";
+import { reserveCoupon } from "@/lib/coupons";
+import { allocateDiscount } from "@/lib/discounts";
+import { reserveProduct } from "@/lib/inventory";
+import { currentCustomer } from "@/lib/customer-auth";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { createHash } from "node:crypto";
@@ -24,13 +34,17 @@ export async function POST(req: NextRequest) {
         "Checkout is not open yet. Please check back soon.",
         503,
       );
+    assertTradingAllowed();
     const parsed = orderSchema.safeParse(await readJSON(req));
     if (!parsed.success)
       throw new RequestError("Please check your items and delivery details");
     const key = req.headers.get("idempotency-key");
     if (!key || !/^[a-zA-Z0-9-]{16,80}$/.test(key))
       throw new RequestError("A valid idempotency key is required");
-    const ownerTokenHash = await checkoutIdentity(true);
+    const customer = await currentCustomer();
+    const ownerTokenHash = customer
+      ? `account:${customer.id}`
+      : await checkoutIdentity(true);
     if (!ownerTokenHash) throw new RequestError("Session unavailable", 401);
     await rateLimit("orders", ownerTokenHash, 12);
     const input = parsed.data;
@@ -57,6 +71,8 @@ export async function POST(req: NextRequest) {
       )
       .digest("hex");
     await connectDB();
+    const fx = await exchangeSnapshot();
+    const orderId = new mongoose.Types.ObjectId();
     const session = await mongoose.startSession();
     let result:
       { orderId: string; amountMinor: number; currency: string } | undefined;
@@ -81,17 +97,21 @@ export async function POST(req: NextRequest) {
         }
         const items = [];
         for (const line of requested) {
-          const product = await Product.findOneAndUpdate(
-            { sku: line.sku, active: true, stock: { $gte: line.qty } },
-            { $inc: { stock: -line.qty } },
-            { session, returnDocument: "after" },
+          const { product, allocations } = await reserveProduct(
+            line.sku,
+            line.qty,
+            `order:${orderId}`,
+            session,
           );
-          if (!product)
+          let unitPrice: number;
+          try {
+            unitPrice = resolveUnitPrice(product.prices, input.currency, fx);
+          } catch {
             throw new RequestError(
-              "An item is unavailable or has insufficient stock",
-              409,
+              "Pricing is unavailable in this currency",
+              503,
             );
-          const unitPrice = product.prices[input.currency];
+          }
           if (!Number.isSafeInteger(unitPrice) || unitPrice <= 0)
             throw new RequestError("Product pricing unavailable", 409);
           items.push({
@@ -99,17 +119,49 @@ export async function POST(req: NextRequest) {
             name: product.name,
             qty: line.qty,
             unitPrice,
+            allocations,
+            taxCode: product.taxCode,
+            fxTimestamp: product.prices[input.currency]
+              ? undefined
+              : fx?.timestamp,
           });
         }
-        const subtotal = checkedTotal(items.map((i) => i.qty * i.unitPrice)),
-          amountMinor = checkedTotal([subtotal, shipping]);
+        const subtotal = checkedTotal(items.map((i) => i.qty * i.unitPrice));
+        const promotion = input.couponCode
+          ? await reserveCoupon(
+              input.couponCode,
+              subtotal,
+              input.currency,
+              customer?.id,
+              String(orderId),
+              session,
+            )
+          : null;
+        const discountMinor = promotion?.discount ?? 0,
+          amountMinor = checkedTotal([subtotal - discountMinor, shipping]),
+          discounts = allocateDiscount(
+            items.map((i) => i.qty * i.unitPrice),
+            discountMinor,
+          );
+        const pricedItems = items.map((i, index) => ({
+          ...i,
+          lineTotalMinor: i.qty * i.unitPrice - discounts[index],
+        }));
         const [order] = await Order.create(
           [
             {
+              _id: orderId,
               ownerTokenHash,
+              customerId: customer?.id,
               idempotencyKey: key,
               requestHash,
-              items,
+              policyHash: createHash("sha256")
+                .update(JSON.stringify(site.policy))
+                .digest("hex"),
+              consentedAt: new Date(),
+              items: pricedItems,
+              couponId: promotion?.couponId,
+              discountMinor,
               currency: input.currency,
               subtotal,
               shipping,

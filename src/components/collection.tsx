@@ -1,4 +1,5 @@
 "use client";
+import { site } from "@/config/site";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -10,6 +11,7 @@ import {
   type ProductData,
 } from "@/lib/catalog";
 import { useCart } from "./cart-provider";
+import { SaveButtons } from "./saved-provider";
 import { Icon } from "./icons";
 export function Collection({
   products,
@@ -29,38 +31,114 @@ export function Collection({
       requested && categories.includes(requested) ? requested : "All",
     );
   }, [params]);
+  const [remote, setRemote] = useState({
+      items: products,
+      total: products.length,
+      pages: 1,
+    }),
+    [page, setPage] = useState(1),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState(""),
+    [minPrice, setMinPrice] = useState(""),
+    [maxPrice, setMaxPrice] = useState(""),
+    [inStock, setInStock] = useState(false);
+  useEffect(() => {
+    setPage(1);
+  }, [category, query, sort, currency, minPrice, maxPrice, inStock]);
+  useEffect(() => {
+    if (!live) return;
+    const controller = new AbortController(),
+      timer = setTimeout(async () => {
+        setLoading(true);
+        setError("");
+        try {
+          const qs = new URLSearchParams({
+            query,
+            category,
+            sort,
+            currency,
+            page: String(page),
+            inStock: String(inStock),
+          });
+          if (minPrice)
+            qs.set("min", String(Math.round(Number(minPrice) * 100)));
+          if (maxPrice)
+            qs.set("max", String(Math.round(Number(maxPrice) * 100)));
+          const r = await fetch(`/api/catalog?${qs}`, {
+            signal: controller.signal,
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error);
+          setRemote(data);
+        } catch (e) {
+          if (!controller.signal.aborted)
+            setError(e instanceof Error ? e.message : "Catalog unavailable");
+        } finally {
+          if (!controller.signal.aborted) setLoading(false);
+        }
+      }, 180);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    live,
+    query,
+    category,
+    sort,
+    currency,
+    page,
+    minPrice,
+    maxPrice,
+    inStock,
+  ]);
   const filtered = useMemo(
     () =>
-      products
-        .filter(
-          (p) =>
-            (category === "All" || p.category === category) &&
-            `${p.name} ${p.category} ${p.tagline}`
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-        )
-        .sort((a, b) =>
-          sort === "price-low"
-            ? a.prices[currency] - b.prices[currency]
-            : sort === "price-high"
-              ? b.prices[currency] - a.prices[currency]
-              : Number(b.featured) - Number(a.featured),
-        ),
-    [products, category, query, sort, currency],
+      live
+        ? remote.items
+        : products
+            .filter(
+              (p) =>
+                (category === "All" || p.category === category) &&
+                `${p.name} ${p.category} ${p.tagline}`
+                  .toLowerCase()
+                  .includes(query.toLowerCase()) &&
+                (!inStock || p.stock > 0) &&
+                (!minPrice ||
+                  p.prices[currency] >= Math.round(Number(minPrice) * 100)) &&
+                (!maxPrice ||
+                  p.prices[currency] <= Math.round(Number(maxPrice) * 100)),
+            )
+            .sort((a, b) =>
+              sort === "price-low"
+                ? a.prices[currency] - b.prices[currency]
+                : sort === "price-high"
+                  ? b.prices[currency] - a.prices[currency]
+                  : Number(b.featured) - Number(a.featured),
+            ),
+    [
+      live,
+      remote,
+      products,
+      category,
+      query,
+      sort,
+      currency,
+      inStock,
+      minPrice,
+      maxPrice,
+    ],
   );
   return (
     <section id="collection" className="shell section collection">
       <div className="section-heading">
         <div>
-          <span className="eyebrow">THE GOOD STUFF</span>
+          <span className="eyebrow">{site.copy.collectionEyebrow}</span>
           <h2>
-            Meet your next <em>essential.</em>
+            {site.copy.collectionTitle} <em>{site.copy.collectionAccent}</em>
           </h2>
         </div>
-        <p>
-          Considered design. Everyday possibility.
-          <br />A new way to make it yours.
-        </p>
+        <p>{site.copy.collectionDescription}</p>
       </div>
       {!live && (
         <div className="draft-note">
@@ -96,8 +174,44 @@ export function Collection({
           />
         </label>
       </div>
+      <div className="price-filters">
+        <label>
+          Minimum price ({currency})
+          <input
+            type="number"
+            min={0}
+            value={minPrice}
+            onChange={(e) => setMinPrice(e.target.value)}
+          />
+        </label>
+        <label>
+          Maximum price ({currency})
+          <input
+            type="number"
+            min={0}
+            value={maxPrice}
+            onChange={(e) => setMaxPrice(e.target.value)}
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={inStock}
+            onChange={(e) => setInStock(e.target.checked)}
+          />{" "}
+          In stock only
+        </label>
+      </div>
+      {loading && <p role="status">Updating collection…</p>}
+      {error && (
+        <p role="alert" className="error-box">
+          {error}
+        </p>
+      )}
       <div className="results-row">
-        <span aria-live="polite">{filtered.length} essentials</span>
+        <span aria-live="polite">
+          {live ? remote.total : filtered.length} essentials
+        </span>
         <label>
           Sort by{" "}
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
@@ -142,6 +256,7 @@ export function Collection({
                 {formatMoney(p.prices[currency], currency)}
               </span>
             </div>
+            <SaveButtons sku={p.sku} />
             <button
               className="add-button"
               disabled={!ready || (live && p.stock === 0)}
@@ -157,6 +272,27 @@ export function Collection({
           </article>
         ))}
       </div>
+      {live && remote.pages > 1 && (
+        <nav className="pagination" aria-label="Collection pages">
+          <button
+            className="button outline"
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Previous
+          </button>
+          <span>
+            Page {page} of {remote.pages}
+          </span>
+          <button
+            className="button outline"
+            disabled={page >= remote.pages || loading}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </button>
+        </nav>
+      )}
       {!filtered.length && (
         <div className="empty-state">
           <h3>No essentials found.</h3>

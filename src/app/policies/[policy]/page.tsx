@@ -1,3 +1,4 @@
+import { site, storageKey } from "@/config/site";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 const policies: Record<
@@ -60,7 +61,7 @@ const policies: Record<
     sections: [
       [
         "Merchant information",
-        "The operating entity, registered address, customer support contact and applicable law must be supplied by Leron Urban Electronics.",
+        "The operating entity, registered address, customer support contact and applicable law must be supplied by the store operator.",
       ],
       [
         "Prices and orders",
@@ -87,19 +88,30 @@ export default async function Page({
 }: {
   params: Promise<{ policy: string }>;
 }) {
-  const policy = policies[(await params).policy];
+  const key = (await params).policy;
+  const policy = policies[key];
+  const approvedCopy =
+    site.policy[key as "shipping" | "returns" | "privacy" | "terms"];
   if (!policy) notFound();
   return (
     <main id="main" className="shell section prose">
-      <span className="eyebrow">THE DETAILS MATTER · DRAFT POLICY</span>
+      <span className="eyebrow">
+        THE DETAILS MATTER ·{" "}
+        {site.policy.approved ? "STORE POLICY" : "DRAFT POLICY"}
+      </span>
       <h1>{policy.title}</h1>
-      <p className="lead">{policy.intro}</p>
-      {policy.sections.map(([title, text]) => (
-        <section key={title}>
-          <h2>{title}</h2>
-          <p>{text}</p>
-        </section>
-      ))}
+      {approvedCopy ? (
+        <div className="policy-copy">{approvedCopy}</div>
+      ) : (
+        <p className="lead">{policy.intro}</p>
+      )}
+      {!approvedCopy &&
+        policy.sections.map(([title, text]) => (
+          <section key={title}>
+            <h2>{title}</h2>
+            <p>{text}</p>
+          </section>
+        ))}
     </main>
   );
 }

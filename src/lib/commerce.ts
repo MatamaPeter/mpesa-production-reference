@@ -1,7 +1,11 @@
+import { site } from "@/config/site";
 import { z } from "zod";
 export const addressSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  email: z.email().max(254),
+  email: z
+    .email()
+    .max(254)
+    .transform((s) => s.toLowerCase()),
   phone: z.string().trim().min(7).max(24),
   line1: z.string().trim().min(3).max(160),
   line2: z.string().trim().max(160).default(""),
@@ -23,7 +27,16 @@ export const orderSchema = z
       )
       .min(1)
       .max(20),
-    currency: z.enum(["USD", "KES"]),
+    currency: z
+      .string()
+      .refine((c) => site.currencies.includes(c), "Unsupported currency"),
+    termsAccepted: z.literal(true),
+    couponCode: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9-]{0,32}$/)
+      .default(""),
     address: addressSchema,
   })
   .strict();
@@ -45,7 +58,12 @@ export function checkedTotal(amounts: number[]) {
     throw new Error("Invalid total");
   return total;
 }
-export function shippingQuote(country: string, currency: "USD" | "KES") {
+export function shippingQuote(country: string, currency: string) {
+  if (
+    process.env.COMMERCE_STAGE === "live" &&
+    !site.launchCountries.includes(country)
+  )
+    throw new Error("This destination is not in the approved launch market");
   const raw = process.env.SHIPPING_RATES_JSON;
   if (!raw) throw new Error("Shipping is not configured for this destination");
   const rates = JSON.parse(raw) as Record<string, Record<string, number>>;

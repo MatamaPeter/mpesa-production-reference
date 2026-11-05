@@ -1,4 +1,5 @@
 "use client";
+import { site, storageKey } from "@/config/site";
 import {
   createContext,
   useContext,
@@ -29,12 +30,14 @@ const Context = createContext<{
 });
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartLine[]>([]),
-    [currency, setCurrency] = useState<Currency>("USD"),
+    [currency, setCurrency] = useState<Currency>(site.locale.defaultCurrency),
     [ready, setReady] = useState(false),
     [notice, setNotice] = useState("");
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("leron-cart-v1") ?? "null");
+      const saved = JSON.parse(
+        localStorage.getItem(storageKey("cart-v1")) ?? "null",
+      );
       if (saved && Array.isArray(saved.items)) {
         const seen = new Set();
         setItems(
@@ -50,7 +53,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
             )
             .slice(0, 20),
         );
-        if (saved.currency === "KES") setCurrency("KES");
+        if (site.currencies.includes(saved.currency))
+          setCurrency(saved.currency);
       }
     } catch {}
     setReady(true);
@@ -59,7 +63,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (ready)
       try {
         localStorage.setItem(
-          "leron-cart-v1",
+          storageKey("cart-v1"),
           JSON.stringify({ items, currency }),
         );
       } catch {}

@@ -1,6 +1,19 @@
-export const currencies = ["USD", "KES"] as const;
+import { currencyDigits } from "./money";
+import { site } from "@/config/site";
+export const currencies = site.currencies;
 export type Currency = (typeof currencies)[number];
 export type ProductData = {
+  brand?: string;
+  gtin?: string;
+  mpn?: string;
+  condition?: string;
+  parentSku?: string;
+  attributes?: { name: string; value: string }[];
+  specifications?: { name: string; value: string }[];
+  images?: string[];
+  tags?: string[];
+  taxCode?: string;
+  weightGrams?: number;
   sku: string;
   slug: string;
   name: string;
@@ -23,7 +36,7 @@ export const draftProducts: ProductData[] = [
     category: "Audio",
     tagline: "Your world. On mute.",
     description:
-      "A wireless headphone concept for the Leron launch collection. Final manufacturer, specifications, warranty and availability will be confirmed before sale.",
+      "A wireless headphone concept for the launch collection. Final manufacturer, specifications, warranty and availability will be confirmed before sale.",
     prices: { USD: 12900, KES: 1690000 },
     image: "headphones",
     features: [
@@ -115,21 +128,21 @@ export const draftProducts: ProductData[] = [
     featured: false,
   },
 ];
-export function formatMoney(minor: number, currency: Currency = "USD") {
-  return new Intl.NumberFormat("en", {
+export function formatMoney(
+  minor: number,
+  currency: Currency = site.locale.defaultCurrency,
+) {
+  if (!Number.isSafeInteger(minor)) return "Unavailable";
+  return new Intl.NumberFormat(site.locale.formatting, {
     style: "currency",
     currency,
-    maximumFractionDigits: minor % 100 === 0 ? 0 : 2,
+    maximumFractionDigits:
+      minor % 10 ** currencyDigits(currency) === 0
+        ? 0
+        : currencyDigits(currency),
   }).format(minor / 100);
 }
-export const categories = [
-  "All",
-  "Audio",
-  "Wearables",
-  "Cameras",
-  "Computing",
-  "Accessories",
-];
+export const categories = ["All", ...site.categories];
 
 const illustrationNames = new Set([
   "headphones",
@@ -141,6 +154,7 @@ const illustrationNames = new Set([
 ]);
 export function validProductImage(value: string) {
   return (
+    /^\/api\/media\/[a-f0-9]{32}$/.test(value) ||
     illustrationNames.has(value) ||
     /^\/products\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.(?:png|jpe?g|webp|avif)$/i.test(
       value,

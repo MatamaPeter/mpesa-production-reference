@@ -1,3 +1,6 @@
+import { assertTradingAllowed } from "@/lib/trading";
+import { TaxQuote } from "@/models/TaxQuote";
+import { orderAccess, currentCustomer } from "@/lib/customer-auth";
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -14,6 +17,10 @@ const schema = z
   .object({
     orderId: z.string().regex(/^[a-f0-9]{24}$/i),
     phone: z.string().min(9).max(20),
+    taxQuoteId: z
+      .string()
+      .regex(/^[a-f0-9]{32}$/)
+      .optional(),
     expectedTotalMinor: z.number().int().positive(),
   })
   .strict();
@@ -27,6 +34,7 @@ export async function POST(req: NextRequest) {
       process.env.MPESA_TAX_APPROVED !== "true"
     )
       throw new RequestError("M-Pesa checkout is not open", 503);
+    assertTradingAllowed();
     const required = [
       "MPESA_CONSUMER_KEY",
       "MPESA_CONSUMER_SECRET",
@@ -51,8 +59,10 @@ export async function POST(req: NextRequest) {
     } catch {
       throw new RequestError("M-Pesa callback configuration is invalid", 503);
     }
-    const ownerTokenHash = await checkoutIdentity();
-    if (!ownerTokenHash)
+    const access = await orderAccess();
+    const ownerTokenHash =
+      (await currentCustomer())?.id ?? (await checkoutIdentity());
+    if (!access || !ownerTokenHash)
       throw new RequestError("Checkout session missing", 401);
     const parsed = schema.safeParse(await readJSON(req));
     if (!parsed.success) throw new RequestError("Invalid payment request");
@@ -65,10 +75,11 @@ export async function POST(req: NextRequest) {
     const raw = process.env.MPESA_TAX_BASIS_POINTS,
       basisPoints = Number(raw);
     if (
-      raw === undefined ||
-      !Number.isInteger(basisPoints) ||
-      basisPoints < 0 ||
-      basisPoints > 10000
+      process.env.MPESA_TAX_PROVIDER !== "stripe" &&
+      (raw === undefined ||
+        !Number.isInteger(basisPoints) ||
+        basisPoints < 0 ||
+        basisPoints > 10000)
     )
       throw new RequestError("M-Pesa tax is not configured", 503);
     await rateLimit("mpesa", ownerTokenHash, 5);
@@ -82,7 +93,7 @@ export async function POST(req: NextRequest) {
         const order = await Order.findOneAndUpdate(
           {
             _id: parsed.data.orderId,
-            ownerTokenHash,
+            ...access,
             status: "unpaid",
             activePaymentId: null,
             currency: "KES",
@@ -98,9 +109,25 @@ export async function POST(req: NextRequest) {
             "Order unavailable or payment already active",
             409,
           );
-        const taxMinor =
-            Math.round((order.amountMinor * basisPoints) / 10000 / 100) * 100,
-          finalMinor = order.amountMinor + taxMinor;
+
+        const quote =
+          process.env.MPESA_TAX_PROVIDER === "stripe"
+            ? await TaxQuote.findOne({
+                _id: parsed.data.taxQuoteId,
+                orderId: order._id,
+                amountMinor: order.amountMinor,
+                expiresAt: { $gt: new Date() },
+              }).session(session)
+            : null;
+        if (process.env.MPESA_TAX_PROVIDER === "stripe" && !quote)
+          throw new RequestError(
+            "Refresh the provider tax quote before paying",
+            409,
+          );
+        const taxMinor = quote
+            ? quote.taxMinor
+            : Math.round((order.amountMinor * basisPoints) / 10000 / 100) * 100,
+          finalMinor = quote ? quote.totalMinor : order.amountMinor + taxMinor;
         if (!Number.isSafeInteger(finalMinor) || finalMinor % 100 !== 0)
           throw new RequestError("Invalid KES total", 409);
         if (finalMinor !== parsed.data.expectedTotalMinor)
@@ -112,7 +139,14 @@ export async function POST(req: NextRequest) {
         reference = String(order._id).slice(-12).toUpperCase();
         await Order.updateOne(
           { _id: order._id },
-          { $set: { amount, taxMinor } },
+          {
+            $set: {
+              amount,
+              taxMinor,
+              taxCalculationId: quote?.calculationId,
+              taxRoundingMinor: quote?.roundingMinor ?? 0,
+            },
+          },
           { session },
         );
         await Payment.create(

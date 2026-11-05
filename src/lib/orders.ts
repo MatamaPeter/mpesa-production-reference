@@ -1,3 +1,5 @@
+import { releaseCoupon } from "./coupons";
+import { returnInventory } from "./inventory";
 import "server-only";
 import mongoose, { type ClientSession } from "mongoose";
 import { Order } from "@/models/Order";
@@ -9,12 +11,8 @@ export async function releaseStock(orderId: string, session: ClientSession) {
     { session, returnDocument: "before" },
   );
   if (!order) return;
-  for (const item of order.items)
-    await Product.updateOne(
-      { sku: item.sku },
-      { $inc: { stock: item.qty } },
-      { session },
-    );
+  await releaseCoupon(order, session);
+  await returnInventory(order.items, `order:${orderId}`, session);
 }
 export async function cancelOrder(orderId: string) {
   const session = await mongoose.startSession();

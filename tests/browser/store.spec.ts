@@ -1,3 +1,4 @@
+import { site } from "../../src/config/site";
 import { test, expect } from "@playwright/test";
 
 test("collection filters, searches and sorts without hydration errors", async ({
@@ -164,4 +165,71 @@ test("main shopping pages have no serious or critical automated accessibility fi
         .map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
     ).toEqual([]);
   }
+});
+
+test("saved products, comparison and image zoom work across reloads", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const cards = page.locator(".product-card");
+  await cards
+    .first()
+    .getByRole("button", { name: "♡ Save", exact: true })
+    .click();
+  await cards
+    .first()
+    .getByRole("button", { name: "⇄ Compare", exact: true })
+    .click();
+  await cards
+    .nth(1)
+    .getByRole("button", { name: "⇄ Compare", exact: true })
+    .click();
+  await page.goto("/saved");
+  await expect(
+    page.getByRole("heading", { name: "Your wishlist" }),
+  ).toBeVisible();
+  await expect(page.getByRole("table")).toContainText("Studio Wireless");
+  await expect(page.getByRole("table")).toContainText("Pulse Mini");
+  await page.reload();
+  await expect(page.getByRole("table")).toContainText("Studio Wireless");
+  await page.goto("/products/studio-wireless-headphones");
+  await page
+    .getByRole("button", { name: "Enlarge Studio Wireless image" })
+    .click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+});
+test("client configuration controls branding, contacts, policy defaults and theme", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  expect(
+    await page.evaluate(() =>
+      document.documentElement.style.getPropertyValue("--deep"),
+    ),
+  ).toBe(site.theme.primary);
+  await expect(page.locator(".wordmark")).toContainText(site.brand.wordmark);
+  await page.goto("/contact");
+  await expect(
+    page.getByRole("heading", { name: site.brand.name }),
+  ).toBeVisible();
+  await expect(
+    page.locator("aside").getByRole("link", { name: site.contact.email }),
+  ).toHaveAttribute("href", "mailto:" + site.contact.email);
+  await page.goto("/policies/returns");
+  await expect(page.locator(".policy-copy")).toContainText(
+    `${site.policy.returnWindowDays} days`,
+  );
+  await page.goto("/account");
+  await expect(
+    page.getByRole("heading", { name: "Sign in or create an account" }),
+  ).toBeVisible();
+  await page.goto("/admin/operations");
+  await expect(
+    page.getByRole("heading", { name: "Staff access required." }),
+  ).toBeVisible();
+  expect((await request.get("/api/admin/email")).status()).toBe(401);
+  expect((await request.get("/api/account/export")).status()).toBe(401);
 });

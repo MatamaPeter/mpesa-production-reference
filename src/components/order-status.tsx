@@ -1,4 +1,5 @@
 "use client";
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useCart } from "./cart-provider";
@@ -7,6 +8,19 @@ interface OrderView {
   id: string;
   currency: Currency;
   amountMinor: number;
+  shipping: number;
+  discountMinor: number;
+  refundedMinor: number;
+  paymentHold: boolean;
+  mpesaTaxQuoteId: string | null;
+  mpesaRoundingMinor: number;
+  mpesaCanQuote: boolean;
+  shipments: {
+    _id: string;
+    trackingNumber: string;
+    trackingUrl: string;
+    deliveryStatus: string;
+  }[];
   totalPaidMinor: number | null;
   status: string;
   paymentMethod: "stripe" | "mpesa" | null;
@@ -63,11 +77,11 @@ export function OrderStatus({ orderId }: { orderId: string }) {
   // Remove only the paid order's quantities, not unrelated additions to the bag.
   useEffect(() => {
     if (order?.status !== "paid") return;
-    const key = `leron-cleared-${order.id}`;
+    const key = storageKey(`cleared-${order.id}`);
     try {
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, "1");
-      sessionStorage.removeItem("leron-checkout-request");
+      sessionStorage.removeItem(storageKey("checkout-request"));
       for (const line of order.items) {
         const existing = items.find((i) => i.sku === line.sku);
         if (existing) update(line.sku, Math.max(0, existing.qty - line.qty));
@@ -115,6 +129,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
             orderId,
             phone,
             expectedTotalMinor: order?.mpesaQuoteMinor,
+            taxQuoteId: order?.mpesaTaxQuoteId ?? undefined,
           }),
         }),
         data = await r.json();
@@ -152,7 +167,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
   }
   return (
     <main id="main" className="shell section order-page">
-      <span className="eyebrow">YOUR LERON ORDER</span>
+      <span className="eyebrow">YOUR {site.brand.wordmark} ORDER</span>
       <h1 className="page-title">
         {order?.status === "paid" ? (
           <>
@@ -198,6 +213,44 @@ export function OrderStatus({ orderId }: { orderId: string }) {
               </strong>
             </div>
           ))}
+          {order.shipping > 0 && (
+            <div className="summary-line">
+              <span>Delivery</span>
+              <strong>{formatMoney(order.shipping, order.currency)}</strong>
+            </div>
+          )}
+          {order.discountMinor > 0 && (
+            <div className="summary-line">
+              <span>Promotion</span>
+              <strong>
+                −{formatMoney(order.discountMinor, order.currency)}
+              </strong>
+            </div>
+          )}
+          {order.refundedMinor > 0 && (
+            <p>Refunded: {formatMoney(order.refundedMinor, order.currency)}</p>
+          )}
+          {order.paymentHold && (
+            <p role="alert" className="error-box">
+              This order is on a payment review hold. Please contact support.
+            </p>
+          )}
+          {order.shipments?.map((s) => (
+            <p key={s._id}>
+              Tracking {s.trackingNumber} ·{" "}
+              {s.deliveryStatus ?? "Label created"}{" "}
+              {s.trackingUrl && (
+                <a
+                  className="text-link"
+                  href={s.trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Track package ↗
+                </a>
+              )}
+            </p>
+          ))}
           <div className="summary-total">
             <span>
               {order.status === "paid" ? "Total paid" : "Before provider tax"}
@@ -222,6 +275,43 @@ export function OrderStatus({ orderId }: { orderId: string }) {
               >
                 Continue with card
               </button>
+              {order.mpesaCanQuote && (
+                <button
+                  className="button outline"
+                  disabled={busy || !!order.paymentMethod}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const r = await fetch(`/api/orders/${orderId}/tax`, {
+                          method: "POST",
+                        }),
+                        data = await r.json();
+                      if (!r.ok) throw new Error(data.error);
+                      setOrder((o) =>
+                        o
+                          ? {
+                              ...o,
+                              mpesaQuoteMinor: data.totalMinor,
+                              mpesaTaxMinor: data.taxMinor,
+                              mpesaRoundingMinor: data.roundingMinor,
+                              mpesaTaxQuoteId: data.id,
+                            }
+                          : o,
+                      );
+                    } catch (e) {
+                      setMessage(
+                        e instanceof Error
+                          ? e.message
+                          : "Tax quote unavailable",
+                      );
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Calculate / refresh M-Pesa tax
+                </button>
+              )}
               {order.mpesaQuoteMinor !== null && (
                 <>
                   <label>
@@ -241,6 +331,12 @@ export function OrderStatus({ orderId }: { orderId: string }) {
                     {formatMoney(order.mpesaTaxMinor ?? 0, order.currency)}{" "}
                     tax).
                   </p>
+                  {order.mpesaRoundingMinor !== 0 && (
+                    <p className="fine-print">
+                      Whole-shilling rounding adjustment:{" "}
+                      {formatMoney(order.mpesaRoundingMinor, order.currency)}
+                    </p>
+                  )}
                   <button
                     className="button outline"
                     onClick={mpesa}
@@ -271,6 +367,16 @@ export function OrderStatus({ orderId }: { orderId: string }) {
             this browser session to access your order.
           </p>
         </div>
+      )}
+      {order?.fulfillment === "delivered" && (
+        <p>
+          <Link
+            className="button outline"
+            href={`/returns?orderId=${order.id}`}
+          >
+            Request a return
+          </Link>
+        </p>
       )}
       <Link className="text-link" href="/#collection">
         Back to the collection ↗

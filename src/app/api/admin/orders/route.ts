@@ -2,25 +2,41 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { queueNotification } from "@/lib/notifications";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin";
+import { requirePermission, requireAdmin } from "@/lib/admin";
 import { checkOrigin } from "@/lib/checkout-auth";
 import { connectDB } from "@/lib/db";
 import { Order } from "@/models/Order";
 import { apiError, readJSON, RequestError } from "@/lib/http";
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    await requireAdmin();
+    await requirePermission("orders.read");
     await connectDB();
-    const orders = await Order.find()
-      .sort({ createdAt: -1 })
-      .limit(100)
+    const cursor = req.nextUrl.searchParams.get("cursor"),
+      orderId = req.nextUrl.searchParams.get("orderId");
+    if (
+      (cursor && !/^[a-f0-9]{24}$/i.test(cursor)) ||
+      (orderId && !/^[a-f0-9]{24}$/i.test(orderId))
+    )
+      throw new RequestError("Invalid order reference");
+    const orders = await Order.find({
+      ...(cursor ? { _id: { $lt: cursor } } : {}),
+      ...(orderId ? { _id: orderId } : {}),
+    })
+      .sort({ _id: -1 })
+      .limit(51)
       .select(
-        "items currency amountMinor status fulfillment trackingNumber address createdAt",
+        "items currency amountMinor totalPaidMinor refundedMinor refundReservedMinor paymentHold disputeStatus status fulfillment trackingNumber address createdAt",
       )
       .lean();
-    return NextResponse.json(orders, {
-      headers: { "Cache-Control": "no-store" },
-    });
+    return NextResponse.json(
+      {
+        items: orders.slice(0, 50),
+        nextCursor: orders.length > 50 ? String(orders[49]._id) : null,
+      },
+      {
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
   } catch (e) {
     return apiError(e);
   }
@@ -29,7 +45,7 @@ export async function PATCH(req: NextRequest) {
   if (!checkOrigin(req))
     return NextResponse.json({ error: "Forbidden origin" }, { status: 403 });
   try {
-    await requireAdmin();
+    await requirePermission("orders.fulfill");
     const parsed = z
       .object({
         orderId: z.string().regex(/^[a-f0-9]{24}$/i),
@@ -52,8 +68,21 @@ export async function PATCH(req: NextRequest) {
     try {
       await session.withTransaction(async () => {
         const order = await Order.findOneAndUpdate(
-          { _id: orderId, status: "paid", fulfillment: previous },
-          { $set: { fulfillment, trackingNumber } },
+          {
+            _id: orderId,
+            status: "paid",
+            paymentHold: { $ne: true },
+            fulfillment: previous,
+          },
+          {
+            $set: {
+              fulfillment,
+              trackingNumber,
+              ...(fulfillment === "delivered"
+                ? { deliveredAt: new Date() }
+                : {}),
+            },
+          },
           { session, returnDocument: "after" },
         );
         if (!order)

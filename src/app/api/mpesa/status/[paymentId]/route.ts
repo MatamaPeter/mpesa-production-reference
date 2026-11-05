@@ -1,3 +1,4 @@
+import { orderAccess } from "@/lib/customer-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { checkoutIdentity } from "@/lib/checkout-auth";
 import { connectDB } from "@/lib/db";
@@ -13,8 +14,8 @@ export async function GET(
     const { paymentId } = await ctx.params;
     if (!/^[a-f0-9]{24}$/i.test(paymentId))
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
-    const ownerTokenHash = await checkoutIdentity();
-    if (!ownerTokenHash)
+    const access = await orderAccess();
+    if (!access)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     await connectDB();
     const payment = await Payment.findById(paymentId)
@@ -22,7 +23,7 @@ export async function GET(
       .lean();
     if (!payment)
       return NextResponse.json({ error: "Not found" }, { status: 404 });
-    const order = await Order.findOne({ _id: payment.orderId, ownerTokenHash })
+    const order = await Order.findOne({ _id: payment.orderId, ...access })
       .select("_id")
       .lean();
     if (!order)

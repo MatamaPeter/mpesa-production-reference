@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCart, resolveCart } from "./cart-provider";
@@ -12,7 +13,25 @@ export function Bag({
   live: boolean;
 }) {
   const { items, currency, update, ready } = useCart();
-  const lines = resolveCart(items, products),
+  const [resolved, setResolved] = useState(products);
+  useEffect(() => {
+    const missing = items
+      .map((i) => i.sku)
+      .filter((sku) => !resolved.some((p) => p.sku === sku));
+    if (!missing.length) return;
+    const controller = new AbortController();
+    void fetch(`/api/catalog?skus=${missing.join(",")}`, {
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.items) && data.items.length)
+          setResolved((current) => [...current, ...data.items]);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [items, resolved]);
+  const lines = resolveCart(items, resolved),
     subtotal = lines.reduce(
       (n, l) => n + (l.product?.prices[currency] ?? 0) * l.item.qty,
       0,

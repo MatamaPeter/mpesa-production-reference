@@ -13,7 +13,9 @@ export function proxy(req: NextRequest) {
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    ...(dev ? [] : ["upgrade-insecure-requests"]),
+    ...(!dev && process.env.APP_ORIGIN?.startsWith("https://")
+      ? ["upgrade-insecure-requests"]
+      : []),
   ].join("; ");
   const headers = new Headers(req.headers);
   headers.set("x-nonce", nonce);
@@ -21,11 +23,16 @@ export function proxy(req: NextRequest) {
   const response = NextResponse.next({ request: { headers } });
   response.headers.set("Content-Security-Policy", csp);
   if (
-    req.nextUrl.pathname.startsWith("/api/") ||
+    (req.nextUrl.pathname.startsWith("/api/") &&
+      !req.nextUrl.pathname.startsWith("/api/catalog") &&
+      !req.nextUrl.pathname.startsWith("/api/media/") &&
+      !req.nextUrl.pathname.startsWith("/api/reviews")) ||
     req.nextUrl.pathname.startsWith("/admin") ||
     req.nextUrl.pathname.startsWith("/orders")
   )
     response.headers.set("Cache-Control", "no-store");
+  if (req.nextUrl.pathname.startsWith("/account"))
+    response.headers.set("Referrer-Policy", "no-referrer");
   return response;
 }
 export const config = {

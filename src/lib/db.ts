@@ -7,7 +7,17 @@ export async function connectDB() {
   if (!uri) throw new Error("Database is not configured");
   if (!cache.__mongoose)
     cache.__mongoose = mongoose
-      .connect(uri, { serverSelectionTimeoutMS: 10000, autoIndex: false })
+      .connect(uri, {
+        serverSelectionTimeoutMS: 10000,
+        maxPoolSize: Math.min(
+          500,
+          Math.max(5, Number(process.env.DB_POOL_SIZE) || 100),
+        ),
+        waitQueueTimeoutMS: 5000,
+        socketTimeoutMS: 20000,
+        maxIdleTimeMS: 60000,
+        autoIndex: false,
+      })
       .catch((e) => {
         cache.__mongoose = undefined;
         throw e;

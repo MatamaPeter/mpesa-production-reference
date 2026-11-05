@@ -7,26 +7,41 @@ export class RequestError extends Error {
     super(message);
   }
 }
-export async function readJSON(req: Request, max = 24000) {
-  if (!req.headers.get("content-type")?.includes("application/json"))
-    throw new RequestError("Expected application/json", 415);
+
+export async function readBytes(req: Request, max: number) {
   const reader = req.body?.getReader();
   if (!reader) throw new RequestError("Missing request body");
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > max) {
-      await reader.cancel();
-      throw new RequestError("Request too large", 413);
-    }
-    chunks.push(value);
-  }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > max) {
+        await reader.cancel();
+        throw new RequestError("Request too large", 413);
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    reader.releaseLock();
+  }
+}
+export async function readJSON(req: Request, max = 24000) {
+  if (
+    !req.headers
+      .get("content-type")
+      ?.split(";")[0]
+      .trim()
+      .match(/^application\/json$/i)
+  )
+    throw new RequestError("Expected application/json", 415);
+  try {
+    return JSON.parse((await readBytes(req, max)).toString("utf8"));
+  } catch (e) {
+    if (e instanceof RequestError) throw e;
     throw new RequestError("Invalid JSON");
   }
 }

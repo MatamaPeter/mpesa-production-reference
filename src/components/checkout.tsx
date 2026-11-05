@@ -1,6 +1,7 @@
 "use client";
+import { site, storageKey } from "@/config/site";
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useCart, resolveCart } from "./cart-provider";
 import { formatMoney, type ProductData } from "@/lib/catalog";
@@ -25,7 +26,25 @@ export function Checkout({
     [method, setMethod] = useState("stripe");
   const request = useRef<{ key: string; body: string } | null>(null),
     pendingOrder = useRef<string | null>(null);
-  const lines = resolveCart(items, products),
+  const [resolved, setResolved] = useState(products);
+  useEffect(() => {
+    const missing = items
+      .map((i) => i.sku)
+      .filter((sku) => !resolved.some((p) => p.sku === sku));
+    if (!missing.length) return;
+    const controller = new AbortController();
+    void fetch(`/api/catalog?skus=${missing.join(",")}`, {
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.items) && data.items.length)
+          setResolved((current) => [...current, ...data.items]);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [items, resolved]);
+  const lines = resolveCart(items, resolved),
     subtotal = lines.reduce(
       (sum, { item, product }) =>
         sum + (product?.prices[currency] ?? 0) * item.qty,
@@ -51,7 +70,13 @@ export function Checkout({
             "country",
           ].map((k) => [k, String(form.get(k) ?? "")]),
         ),
-        body = JSON.stringify({ items, currency, address });
+        body = JSON.stringify({
+          items,
+          currency,
+          address,
+          couponCode: String(form.get("couponCode") ?? ""),
+          termsAccepted: form.get("termsAccepted") === "on",
+        });
       const fingerprint = Array.from(
         new Uint8Array(
           await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
@@ -61,7 +86,7 @@ export function Checkout({
         .join("");
       try {
         const saved = JSON.parse(
-          sessionStorage.getItem("leron-checkout-request") ?? "null",
+          sessionStorage.getItem(storageKey("checkout-request")) ?? "null",
         );
         if (
           saved?.fingerprint === fingerprint &&
@@ -81,7 +106,7 @@ export function Checkout({
       }
       try {
         sessionStorage.setItem(
-          "leron-checkout-request",
+          storageKey("checkout-request"),
           JSON.stringify({
             key: request.current.key,
             fingerprint,
@@ -105,7 +130,7 @@ export function Checkout({
         pendingOrder.current = orderId;
         try {
           sessionStorage.setItem(
-            "leron-checkout-request",
+            storageKey("checkout-request"),
             JSON.stringify({ key: request.current.key, fingerprint, orderId }),
           );
         } catch {}
@@ -230,6 +255,15 @@ export function Checkout({
                   </select>
                 </label>
               </div>
+              <label className="coupon-field">
+                Promotion code (optional)
+                <input
+                  name="couponCode"
+                  maxLength={32}
+                  pattern="[A-Za-z0-9-]{0,32}"
+                  placeholder="Enter a code"
+                />
+              </label>
               <h2 className="second-legend">
                 <span>02</span> Payment method
               </h2>
@@ -265,6 +299,10 @@ export function Checkout({
                   <small>Kenyan mobile numbers · KES orders only</small>
                 </span>
                 <span className="payment-brand">M-PESA</span>
+              </label>
+              <label className="consent-check">
+                <input type="checkbox" name="termsAccepted" required /> I agree
+                to the terms of sale and acknowledge the privacy notice.
               </label>
               <p className="fine-print">
                 By continuing, you agree to the{" "}

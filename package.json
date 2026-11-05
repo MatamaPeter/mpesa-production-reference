@@ -11,14 +11,21 @@
     "test:e2e": "playwright test",
     "format:check": "prettier --check src tests scripts next.config.ts playwright.config.ts",
     "format": "prettier --write src tests scripts next.config.ts playwright.config.ts",
-    "test:integration": "node tests/integration.mjs",
-    "db:prepare": "node --env-file-if-exists=.env.local scripts/prepare-db.mjs"
+    "test:integration": "node --import tsx tests/integration.mjs",
+    "db:prepare": "node --env-file-if-exists=.env.local scripts/prepare-db.mjs",
+    "test:load": "node tests/load.mjs",
+    "worker": "node --env-file-if-exists=.env.local scripts/worker.mjs",
+    "check:production": "node --env-file-if-exists=.env.local --import tsx scripts/check-production.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1162.0",
+    "mongodb": "^7.8.0",
     "mongoose": "^9.0.0",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "^0.35.5",
+    "shippo": "^2.19.1",
     "stripe": "^23.1.0",
     "zod": "^4.0.0"
   },
@@ -35,5 +42,6 @@
   },
   "engines": {
     "node": ">=22.12.0"
-  }
+  },
+  "type": "module"
 }
