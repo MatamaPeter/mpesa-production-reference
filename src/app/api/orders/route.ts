@@ -17,6 +17,7 @@ import { Order } from "@/models/Order";
 import { Product } from "@/models/Product";
 import {
   orderSchema,
+  orderValidationMessage,
   consolidateItems,
   checkedTotal,
   shippingQuote,
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
     assertTradingAllowed();
     const parsed = orderSchema.safeParse(await readJSON(req));
     if (!parsed.success)
-      throw new RequestError("Please check your items and delivery details");
+      throw new RequestError(orderValidationMessage(parsed.error.issues));
     const key = req.headers.get("idempotency-key");
     if (!key || !/^[a-zA-Z0-9-]{16,80}$/.test(key))
       throw new RequestError("A valid idempotency key is required");

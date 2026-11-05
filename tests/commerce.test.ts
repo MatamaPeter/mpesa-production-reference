@@ -5,6 +5,7 @@ import {
   consolidateItems,
   checkedTotal,
   orderSchema,
+  orderValidationMessage,
   shippingQuote,
 } from "../src/lib/commerce";
 import {
@@ -337,4 +338,32 @@ test("product barcodes validate their checksum before merchant-channel publicati
   assert.equal(validGTIN("not-a-code"), false);
   assert.equal(minorToDecimal(1234, "USD"), "12.34");
   assert.equal(minorToDecimal(1500, "JPY"), "1500");
+});
+
+test("checkout errors identify the correction without exposing submitted personal data", () => {
+  const cases = [
+    [{ ...order, address: { ...order.address, phone: "123" } }, /phone number/],
+    [
+      {
+        ...order,
+        address: { ...order.address, email: "private-invalid-address" },
+      },
+      /valid email/,
+    ],
+    [{ ...order, address: { ...order.address, city: "X" } }, /town or city/],
+    [{ ...order, termsAccepted: false }, /Accept the terms/],
+    [{ ...order, couponCode: "NOT VALID!" }, /coupon code/],
+    [{ ...order, items: [{ sku: "a", qty: 11 }] }, /quantity from 1 to 10/],
+    [{ ...order, currency: "INVALID" }, /supported currency/],
+  ] as const;
+  for (const [input, expected] of cases) {
+    const result = orderSchema.safeParse(input);
+    assert.equal(result.success, false);
+    if (!result.success) {
+      const message = orderValidationMessage(result.error.issues);
+      assert.match(message, expected);
+      assert.equal(message.includes("private-invalid-address"), false);
+      assert.equal(message.includes(order.address.email), false);
+    }
+  }
 });

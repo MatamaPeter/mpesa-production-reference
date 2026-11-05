@@ -40,6 +40,39 @@ export const orderSchema = z
     address: addressSchema,
   })
   .strict();
+/** Shopper-safe validation guidance: never echo submitted personal data. */
+export function orderValidationMessage(
+  issues: readonly { path: readonly PropertyKey[] }[],
+) {
+  const path = issues[0]?.path ?? [];
+  const addressMessages: Record<string, string> = {
+    name: "Enter a delivery name between 2 and 100 characters.",
+    email: "Enter a valid email address, with no surrounding spaces.",
+    phone: "Enter a delivery phone number between 7 and 24 characters.",
+    line1: "Enter a street or building address between 3 and 160 characters.",
+    line2: "Keep the additional address line within 160 characters.",
+    city: "Enter a town or city between 2 and 100 characters.",
+    region: "Keep the county or region within 100 characters.",
+    postalCode: "Keep the postal code within 20 characters.",
+    country: "Select a delivery country from the list.",
+  };
+  if (path[0] === "address")
+    return addressMessages[String(path[1])] ?? "Check your delivery address.";
+  if (path[0] === "termsAccepted")
+    return "Accept the terms of sale and acknowledge the privacy notice before continuing.";
+  if (path[0] === "couponCode")
+    return "Use a coupon code of at most 32 letters, numbers or hyphens, or leave it blank.";
+  if (path[0] === "currency")
+    return "Choose a supported currency using the store currency selector.";
+  if (path[0] === "items") {
+    if (path[2] === "qty")
+      return "Use a whole quantity from 1 to 10 for each product in your bag.";
+    if (path[2] === "sku")
+      return "Your bag contains an invalid product reference. Remove that item and add it again.";
+    return "Check your bag: use 1–20 products with valid product references and quantities.";
+  }
+  return "Checkout data is invalid or outdated. Refresh the page and review your bag.";
+}
 export function consolidateItems(items: { sku: string; qty: number }[]) {
   const map = new Map<string, number>();
   for (const i of items) map.set(i.sku, (map.get(i.sku) ?? 0) + i.qty);

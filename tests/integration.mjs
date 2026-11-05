@@ -236,6 +236,22 @@ try {
       );
     },
   );
+  await check(
+    "invalid delivery details give actionable errors before reserving stock",
+    async () => {
+      const before = await db.collection("orders").countDocuments();
+      const badPhone = await order({
+        ...body(),
+        address: { ...address, phone: "123" },
+      });
+      assert.equal(badPhone.status, 400);
+      assert.match(badPhone.data.error, /phone number/);
+      const consent = await order({ ...body(), termsAccepted: false });
+      assert.equal(consent.status, 400);
+      assert.match(consent.data.error, /Accept the terms/);
+      assert.equal(await db.collection("orders").countDocuments(), before);
+    },
+  );
   await check("concurrent orders cannot oversell the last item", async () => {
     const results = await Promise.all([
       order(body([{ sku: "test-b", qty: 1 }])),
