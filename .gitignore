@@ -3,3 +3,7 @@ node_modules
 .env*
 !.env.example
 *.log
+
+*.tsbuildinfo
+test-results/
+playwright-report/
