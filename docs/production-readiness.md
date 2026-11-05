@@ -2,6 +2,8 @@
 
 Keep `COMMERCE_LIVE=false` until acceptance is complete. `COMMERCE_STAGE` must be explicitly `sandbox` or `live` when checkout is enabled. Sandbox rejects production payment credentials. `npm run check:production` evaluates live configuration without enabling checkout. It is a static gate, not provider acceptance.
 
+The former first-version scope-limit paragraph has been superseded by the [feature-status table](feature-status.md). Use that table when evaluating accounts, refunds, variants, search, media, promotions, reviews, tax, carriers, warehouses, staff security, currencies and order pagination.
+
 ## Merchant acceptance
 
 Approve real products, stock, licensed media, specifications, warranty terms and market prices. The six preview listings are fixtures. Confirm the legal entity, registration details where applicable, customer support staffing, shipping charges/timelines, return eligibility, privacy/retention/processor terms and tax obligations. The configured Kenyan shipping/returns copy is a proposed draft. Review the whole policy text, remove draft qualifications only after approval and set `site.policy.approved=true`.

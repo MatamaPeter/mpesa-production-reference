@@ -26,6 +26,8 @@ For persistent features, provision a MongoDB replica set or sharded cluster, set
 - Role-controlled staff operations, authenticator verification, inventory adjustments/transfers, promotions, customer service, analytics, audit trail and private readiness diagnostics.
 - Central theme variables, metadata, staged merchant feeds, structured product data, nonce-based CSP, static/runtime release checks, CI, a non-root Docker image and an isolated load harness.
 
+The earlier “No customer account system…” scope list is obsolete. See the [current feature-status table](docs/feature-status.md) for each implemented replacement and its activation requirements.
+
 These are application capabilities, not evidence that every provider is authorized or verified. [Architecture and boundaries](docs/architecture.md) describe the operational requirements and explicit limits. Preview products and illustrations are fixtures, not approved sale listings.
 
 ## Validate
